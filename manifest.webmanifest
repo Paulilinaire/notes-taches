@@ -1,0 +1,17 @@
+{
+    "name": "Notes & Tâches",
+    "short_name": "Notes & Tâches",
+    "description": "Planning, listes de courses et coffre perso, sur ton téléphone.",
+    "lang": "fr",
+    "start_url": "./",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#fff6fb",
+    "theme_color": "#7c5cff",
+    "icons": [
+        { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+        { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+        { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    ]
+}
