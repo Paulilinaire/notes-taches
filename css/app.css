@@ -164,6 +164,10 @@ button{cursor:pointer}
 .field input,.field select,.field textarea{width:100%;border:2.5px solid var(--line);border-radius:14px;padding:11px 12px;font-weight:800;outline:none;background:var(--card);transition:border .2s}
 .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--b)}
 .field textarea{min-height:110px;resize:vertical;font-weight:700}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.recap{margin:0 0 16px;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.recap li{background:var(--bg);border-radius:12px;padding:9px 12px;font-weight:800;font-size:14px}
+.btns button:disabled{opacity:.4}
 .pick{display:flex;flex-wrap:wrap;gap:8px}
 .pick label{position:relative}
 .pick input{position:absolute;opacity:0;pointer-events:none}

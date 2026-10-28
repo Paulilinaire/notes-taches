@@ -1,4 +1,4 @@
-const CACHE = 'notes-taches-v1';
+const CACHE = 'notes-taches-v2';
 const ASSETS = [
     './',
     './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
     './js/store.js',
     './js/dates.js',
     './js/vault.js',
+    './js/ics.js',
     './manifest.webmanifest',
     './icons/icon-192.png',
     './icons/icon-512.png',

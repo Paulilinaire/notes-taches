@@ -1,6 +1,7 @@
 import { state, save, uid, replaceState, isValidBackup } from './store.js';
 import * as D from './dates.js';
 import * as V from './vault.js';
+import { parseIcs } from './ics.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -12,7 +13,7 @@ const THEMES = {
     sunset: { label: 'Coucher de soleil', color: '#ff7a00', swatch: 'conic-gradient(#ff4f6d,#ff7a00,#ffd23f,#8c52ff,#ff4f6d)' },
     lagon: { label: 'Lagon', color: '#00b4d8', swatch: 'conic-gradient(#00b4d8,#06d6a0,#3a86ff,#ff6b6b,#00b4d8)' },
 };
-const REMINDER_ICONS = ['i-bell', 'i-phone', 'i-pill', 'i-tooth', 'i-school', 'i-heart', 'i-home', 'i-gift', 'i-card', 'i-cart', 'i-sparkle', 'i-note'];
+const REMINDER_ICONS = ['i-bell', 'i-phone', 'i-pill', 'i-tooth', 'i-school', 'i-heart', 'i-home', 'i-gift', 'i-card', 'i-cart', 'i-sparkle', 'i-note', 'i-cal'];
 const VAULT_ICONS = ['i-card', 'i-tax', 'i-heart', 'i-pill', 'i-home', 'i-lock', 'i-note'];
 const COLORS = ['b', 'a', 'c', 'd'];
 const REPEATS = { none: 'Jamais', weekly: 'Chaque semaine', monthly: 'Chaque mois', yearly: 'Chaque année' };
@@ -127,7 +128,7 @@ function updateFab() {
     $('#fab').hidden = ui.tab === 2 && (!V.isOpen() || ui.pinMode.startsWith('change'));
 }
 
-const occurrences = s => state.reminders.filter(r => D.occursOn(r, s));
+const occurrences = s => state.reminders.filter(r => D.occursOn(r, s)).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 const isDone = (r, s) => !!r.done?.[s];
 
 function cycleInfo() {
@@ -255,7 +256,7 @@ function renderCalendar(direction = 0) {
 
 function reminderRow(r, s, i) {
     const isNote = r.kind === 'note';
-    const sub = isNote ? (r.body || '').split('\n')[0] : (r.repeat !== 'none' ? REPEATS[r.repeat] : '');
+    const sub = isNote ? (r.body || '').split('\n')[0] : [r.time, r.repeat !== 'none' ? REPEATS[r.repeat] : ''].filter(Boolean).join(' · ');
     return `
         <div class="item ${!isNote && isDone(r, s) ? 'done' : ''}" style="--col:var(--${r.color});animation-delay:${i * 60}ms" data-id="${r.id}">
             <div class="ico">${svg(r.icon)}</div>
@@ -325,7 +326,10 @@ function reminderForm(r, kind = 'task') {
         <form>
             <label class="field"><span>${isNote ? 'Titre' : 'Quoi ?'}</span><input name="title" required maxlength="80" value="${esc(v.title)}" placeholder="${isNote ? 'Idées cadeaux…' : 'Appeler la mutuelle…'}"></label>
             ${isNote ? `<label class="field"><span>Note</span><textarea name="body" maxlength="4000">${esc(v.body)}</textarea></label>` : ''}
-            <label class="field"><span>Date</span><input type="date" name="date" required value="${v.date}"></label>
+            <div class="row2">
+                <label class="field"><span>Date</span><input type="date" name="date" required value="${v.date}"></label>
+                ${isNote ? '' : `<label class="field"><span>Heure</span><input type="time" name="time" value="${v.time || ''}"></label>`}
+            </div>
             ${isNote ? '' : `<label class="field"><span>Répétition</span><select name="repeat">${Object.entries(REPEATS).map(([val, label]) => `<option value="${val}" ${v.repeat === val ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`}
             <div class="field"><span>Icône</span><div class="pick">${REMINDER_ICONS.map(ic => `<label><input type="radio" name="icon" value="${ic}" ${v.icon === ic ? 'checked' : ''}><span class="opt">${svg(ic, 22)}</span></label>`).join('')}</div></div>
             <div class="field"><span>Couleur</span><div class="pick">${COLORS.map(c => `<label><input type="radio" name="color" value="${c}" ${v.color === c ? 'checked' : ''}><span class="sw" style="background:var(--${c})"></span></label>`).join('')}</div></div>
@@ -339,6 +343,7 @@ function reminderForm(r, kind = 'task') {
                 const data = {
                     title: fd.get('title').trim(),
                     date: fd.get('date'),
+                    time: fd.get('time') || '',
                     repeat: fd.get('repeat') || 'none',
                     icon: fd.get('icon') || v.icon,
                     color: fd.get('color') || v.color,
@@ -789,13 +794,63 @@ async function importData(file) {
     });
 }
 
+async function importIcs(file) {
+    const events = parseIcs(await file.text());
+    if (!events.length) {
+        toast('Aucun événement trouvé dans ce fichier');
+        return;
+    }
+    const t = D.today();
+    const upcoming = events.filter(e => e.repeat !== 'none' || e.date >= t).slice(0, 500);
+    const known = new Set(state.reminders.map(r => r.icsUid).filter(Boolean));
+    const fresh = upcoming.filter(e => !known.has(e.uid)).length;
+    const updated = upcoming.length - fresh;
+    const skipped = events.length - upcoming.length;
+    const simplified = upcoming.filter(e => e.simplified).length;
+    const lines = [
+        fresh && `${fresh} nouvel(s) événement(s)`,
+        updated && `${updated} déjà importé(s), mis à jour`,
+        skipped && `${skipped} passé(s), ignoré(s)`,
+        simplified && `${simplified} répétition(s) trop complexe(s) : seule la date de départ est gardée`,
+    ].filter(Boolean);
+    openSheet(`
+        <h3>Importer l’agenda</h3>
+        <p>${events.length} événement(s) dans « ${esc(file.name)} ».</p>
+        <ul class="recap">${lines.map(l => `<li>${l}</li>`).join('')}</ul>
+        <div class="btns"><button class="btn-ghost" data-cancel>Annuler</button><button class="btn-main" data-ok ${upcoming.length ? '' : 'disabled'}>Importer ${upcoming.length}</button></div>`,
+        root => {
+            $('[data-cancel]', root).onclick = closeSheet;
+            $('[data-ok]', root).onclick = () => {
+                upcoming.forEach(e => {
+                    const data = { title: e.title, date: e.date, time: e.time, repeat: e.repeat };
+                    const existing = state.reminders.find(r => r.icsUid === e.uid);
+                    if (existing) {
+                        Object.assign(existing, data);
+                    } else {
+                        state.reminders.push({ id: uid(), kind: 'task', done: {}, icon: 'i-cal', color: 'b', body: '', icsUid: e.uid, ...data });
+                    }
+                });
+                save();
+                closeSheet();
+                go(0);
+                renderPlanning();
+                toast(`${upcoming.length} événement(s) importé(s) ✦`);
+            };
+        },
+    );
+}
+
 function settingsForm() {
     openSheet(`
         <h3>Paramètres</h3>
         <label class="field"><span>Ton prénom</span><input name="name" maxlength="30" value="${esc(state.settings.name)}" placeholder="Prénom"></label>
         <div class="field"><span>Ambiance</span><div class="themes">${Object.entries(THEMES).map(([k, t]) => `<label><input type="radio" name="theme" value="${k}" ${state.settings.theme === k ? 'checked' : ''}><span class="sw" style="background:${t.swatch}"></span>${t.label}</label>`).join('')}</div></div>
         <label class="switch"><span>Prévision des règles sans code<small>Bandeau J-x et jours prévus visibles même coffre fermé</small></span><input type="checkbox" name="cycleHint" ${state.settings.cycleHint ? 'checked' : ''}></label>
-        <div class="field"><span>Sauvegarde</span>
+        <div class="field"><span>Agenda</span>
+            <div class="btns"><button type="button" class="btn-ghost" data-ics>${svg('i-cal', 18)} Importer un agenda (.ics)</button></div>
+            <input type="file" accept=".ics,text/calendar" hidden data-ics-file>
+        </div>
+        <div class="field"><span>Sauvegarde de l’app</span>
             <div class="btns"><button type="button" class="btn-ghost" data-export>${svg('i-down', 18)} Exporter</button><button type="button" class="btn-ghost" data-import>${svg('i-up', 18)} Importer</button></div>
             <input type="file" accept="application/json,.json" hidden data-file>
         </div>
@@ -826,6 +881,9 @@ function settingsForm() {
             const file = $('[data-file]', root);
             $('[data-import]', root).onclick = () => file.click();
             file.onchange = () => file.files[0] && importData(file.files[0]);
+            const icsFile = $('[data-ics-file]', root);
+            $('[data-ics]', root).onclick = () => icsFile.click();
+            icsFile.onchange = () => icsFile.files[0] && importIcs(icsFile.files[0]);
         },
     );
 }

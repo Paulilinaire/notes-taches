@@ -32,6 +32,12 @@ Paramètres (⚙) → **Exporter** : télécharge un fichier JSON. Le coffre y r
 les courses sont en clair. Pour restaurer : **Importer** sur le nouveau téléphone, puis entrer le même code.
 Sans le code, le coffre est irrécupérable.
 
+## Importer un agenda
+
+Paramètres (⚙) → **Importer un agenda (.ics)**. Google Agenda : sur ordinateur, *Paramètres → Importer et
+exporter → Exporter* donne un zip contenant un `.ics` par agenda. Les événements passés sont ignorés ; ré-importer
+le même fichier met à jour les événements déjà importés sans les dupliquer.
+
 ## Structure
 
 | Fichier | Rôle |
