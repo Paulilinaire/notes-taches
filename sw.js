@@ -1,4 +1,4 @@
-const CACHE = 'notes-taches-v2';
+const CACHE = 'notes-taches-v3';
 const ASSETS = [
     './',
     './index.html',
@@ -15,7 +15,11 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', event => {
-    event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+    event.waitUntil(
+        caches.open(CACHE)
+            .then(cache => cache.addAll(ASSETS.map(url => new Request(url, { cache: 'reload' }))))
+            .then(() => self.skipWaiting()),
+    );
 });
 
 self.addEventListener('activate', event => {
@@ -33,7 +37,7 @@ self.addEventListener('fetch', event => {
     event.respondWith(
         caches.open(CACHE).then(async cache => {
             const cached = await cache.match(event.request, { ignoreSearch: true });
-            const network = fetch(event.request)
+            const network = fetch(event.request, { cache: 'no-cache' })
                 .then(response => {
                     if (response.ok) {
                         cache.put(event.request, response.clone());

@@ -18,6 +18,7 @@ const VAULT_ICONS = ['i-card', 'i-tax', 'i-heart', 'i-pill', 'i-home', 'i-lock',
 const COLORS = ['b', 'a', 'c', 'd'];
 const REPEATS = { none: 'Jamais', weekly: 'Chaque semaine', monthly: 'Chaque mois', yearly: 'Chaque année' };
 const CATEGORIES = { Administratif: 'b', Santé: 'a', Autre: 'd' };
+const APP_VERSION = 3;
 const AUTO_LOCK_MS = 120000;
 const DEFAULT_CYCLE = 28;
 const SCREENS = ['s-plan', 's-courses', 's-vault'];
@@ -854,7 +855,7 @@ function settingsForm() {
             <div class="btns"><button type="button" class="btn-ghost" data-export>${svg('i-down', 18)} Exporter</button><button type="button" class="btn-ghost" data-import>${svg('i-up', 18)} Importer</button></div>
             <input type="file" accept="application/json,.json" hidden data-file>
         </div>
-        <p class="fine">Tes données restent sur ce téléphone, rien n’est envoyé sur Internet.<br>Le coffre est chiffré avec ton code, y compris dans la sauvegarde.</p>`,
+        <p class="fine">Tes données restent sur ce téléphone, rien n’est envoyé sur Internet.<br>Le coffre est chiffré avec ton code, y compris dans la sauvegarde.<br>Version ${APP_VERSION}</p>`,
         root => {
             $('[name=name]', root).oninput = e => {
                 state.settings.name = e.target.value.trim();
