@@ -1,4 +1,4 @@
-const CACHE = 'to-doudou-v5';
+const CACHE = 'to-doudou-v6';
 const ASSETS = [
     './',
     './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
     './js/dates.js',
     './js/vault.js',
     './js/ics.js',
+    './js/aisles.js',
     './manifest.webmanifest',
     './icons/icon-192.png',
     './icons/icon-512.png',

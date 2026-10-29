@@ -2,6 +2,7 @@ import { state, save, uid, replaceState, isValidBackup } from './store.js';
 import * as D from './dates.js';
 import * as V from './vault.js';
 import { parseIcs } from './ics.js';
+import { AISLES, guessAisle, normalize } from './aisles.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,9 +17,15 @@ const THEMES = {
 const REMINDER_ICONS = ['i-bell', 'i-phone', 'i-pill', 'i-tooth', 'i-school', 'i-heart', 'i-home', 'i-gift', 'i-card', 'i-cart', 'i-sparkle', 'i-note', 'i-cal'];
 const VAULT_ICONS = ['i-card', 'i-tax', 'i-heart', 'i-pill', 'i-home', 'i-lock', 'i-note'];
 const COLORS = ['b', 'a', 'c', 'd'];
-const REPEATS = { none: 'Jamais', weekly: 'Chaque semaine', monthly: 'Chaque mois', yearly: 'Chaque année' };
+const REPEATS = { none: 'Jamais', daily: 'Chaque jour', days: 'Certains jours', weekly: 'Chaque semaine', monthly: 'Chaque mois', yearly: 'Chaque année' };
+const WEEKDAYS = [[1, 'L', 'Lun'], [2, 'M', 'Mar'], [3, 'M', 'Mer'], [4, 'J', 'Jeu'], [5, 'V', 'Ven'], [6, 'S', 'Sam'], [0, 'D', 'Dim']];
+const HABIT_ICONS = ['i-drop', 'i-heart', 'i-sparkle', 'i-veg', 'i-pill', 'i-tooth', 'i-note', 'i-home', 'i-bell'];
+const FLOWS = [['', 'Aucun'], ['light', 'Léger'], ['medium', 'Moyen'], ['heavy', 'Abondant']];
+const SYMPTOMS = ['Crampes', 'Fatigue', 'Maux de tête', 'Ballonnements', 'Seins sensibles', 'Mal de dos', 'Nausées', 'Acné'];
+const MOODS = [['😊', 'Bien'], ['😌', 'Calme'], ['😐', 'Bof'], ['😢', 'Triste'], ['😠', 'Irritable'], ['😰', 'Anxieuse']];
+const BACKUP_EVERY_DAYS = 30;
 const CATEGORIES = { Administratif: 'b', Santé: 'a', Autre: 'd' };
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 const AUTO_LOCK_MS = 120000;
 const DEFAULT_CYCLE = 28;
 const SCREENS = ['s-plan', 's-courses', 's-cycle', 's-vault'];
@@ -30,6 +37,7 @@ const ui = {
     month: new Date().getMonth(),
     selected: D.today(),
     lastToday: D.today(),
+    logDate: D.today(),
     revealed: new Set(),
     pin: '',
     pinFirst: '',
@@ -41,10 +49,16 @@ const ui = {
     bannersHtml: '',
 };
 
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
 function applyTheme() {
     const theme = THEMES[state.settings.theme] ? state.settings.theme : 'bonbon';
+    const appearance = state.settings.appearance || 'auto';
+    const dark = appearance === 'dark' || (appearance === 'auto' && darkQuery.matches);
     document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.mode = dark ? 'dark' : 'light';
     $('meta[name="theme-color"]').content = THEMES[theme].color;
+    $('meta[name="color-scheme"]').content = dark ? 'dark' : 'light';
 }
 
 let toastTimer;
@@ -131,6 +145,13 @@ function updateFab() {
 
 const occurrences = s => state.reminders.filter(r => D.occursOn(r, s)).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 const isDone = (r, s) => !!r.done?.[s];
+const isTask = r => r.kind !== 'note' && !D.isSpan(r);
+const overdueTasks = t => state.reminders.filter(r => isTask(r) && (r.repeat || 'none') === 'none' && r.date < t && D.diffDays(r.date, t) <= 60 && !isDone(r, r.date));
+
+function backupDue(t) {
+    const hasData = state.reminders.length || state.vault || state.cycle.periods.length || state.habits.length || state.lists.some(l => l.items.length);
+    return hasData && D.diffDays(state.lastBackup || state.createdAt, t) >= BACKUP_EVERY_DAYS;
+}
 
 function cycleInfo() {
     const starts = [...state.cycle.periods].sort();
@@ -159,7 +180,24 @@ function cycleKind(s, c, predictions) {
             return { kind: 'pred', day: k + 1 };
         }
     }
+    if (state.settings.showFertility && c.starts.length) {
+        for (const start of predictions) {
+            const k = D.diffDays(s, start);
+            if (k >= 13 && k <= 19) {
+                return { kind: 'fert', ovulation: k === 14 };
+            }
+        }
+    }
     return null;
+}
+
+function fertileWindow(c) {
+    if (!state.settings.showFertility || !c.next) {
+        return null;
+    }
+    const t = D.today();
+    const start = predictedStarts(c).find(p => D.addDays(p, -13) >= t) || c.next;
+    return { from: D.addDays(start, -19), to: D.addDays(start, -13) };
 }
 
 async function migrateCycleFromVault() {
@@ -198,7 +236,20 @@ function banners(t) {
             });
         }
     }
-    const left = occurrences(t).filter(r => r.kind !== 'note' && !isDone(r, t));
+    if (backupDue(t)) {
+        const n = state.lastBackup ? D.diffDays(state.lastBackup, t) : null;
+        out.unshift({
+            col: 'd', col2: 'a2', icon: 'i-down', date: '', action: 'backup',
+            title: 'Pense à sauvegarder',
+            sub: n ? `Dernière sauvegarde il y a ${n} jours` : 'Touche ici pour exporter tes données',
+            count: '💾',
+        });
+    }
+    const late = overdueTasks(t);
+    if (late.length) {
+        out.push({ col: 'a', col2: 'd', icon: 'i-bell', date: t, title: late.length === 1 ? late[0].title : `${late.length} tâches en retard`, sub: 'À rattraper', count: String(late.length) });
+    }
+    const left = occurrences(t).filter(r => isTask(r) && !isDone(r, t));
     if (left.length) {
         out.push({
             col: 'b', col2: 'b2', icon: 'i-bell', date: t,
@@ -219,12 +270,12 @@ function banners(t) {
     if (!out.length) {
         out.push({ col: 'c', col2: 'c2', icon: 'i-sparkle', date: '', title: 'Rien de prévu', sub: 'Profite de ta journée', count: '✦' });
     }
-    return out.slice(0, 2);
+    return out.slice(0, 3);
 }
 
 function renderBanners() {
     const html = banners(D.today()).map(b => `
-        <div class="banner" style="--col:var(--${b.col});--col2:var(--${b.col2})" data-date="${b.date}">
+        <div class="banner" style="--col:var(--${b.col});--col2:var(--${b.col2})" data-date="${b.date}" data-action="${b.action || ''}">
             <div class="bi">${svg(b.icon, 24)}</div>
             <div><b>${esc(b.title)}</b><small>${esc(b.sub)}</small></div>
             <div class="count">${esc(b.count)}</div>
@@ -237,7 +288,7 @@ function renderBanners() {
 
 function renderHeader() {
     $('#plan-date').textContent = cap(D.longDate(D.today()));
-    $('#plan-hello').textContent = state.settings.name ? `Bonjour ${state.settings.name} ✦` : 'Bonjour ✦';
+    $('#plan-hello').textContent = state.settings.name ? `Bonjour ${state.settings.name}\u00a0✦` : 'Bonjour\u00a0✦';
 }
 
 function renderCalendar(direction = 0) {
@@ -250,10 +301,13 @@ function renderCalendar(direction = 0) {
     let html = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(h => `<div class="h">${h}</div>`).join('') + '<div></div>'.repeat(offset);
     for (let d = 1; d <= D.daysInMonth(y, m); d++) {
         const s = D.iso(new Date(y, m, d));
-        const dots = occurrences(s).slice(0, 3).map(r => `<i style="background:var(--${r.color})"></i>`).join('');
+        const occ = occurrences(s);
+        const spans = occ.filter(D.isSpan).slice(0, 2);
+        const dots = occ.filter(r => !D.isSpan(r)).slice(0, 3).map(r => `<i style="background:var(--${r.color})"></i>`).join('');
+        const bands = spans.map(r => `<i class="band ${s === r.date ? 'start' : ''} ${s === r.endDate ? 'end' : ''}" style="background:var(--${r.color})"></i>`).join('');
         const cy = cycleKind(s, c, predictions);
-        const cls = ['d', cy?.kind === 'real' ? 'cy' : '', cy?.kind === 'pred' ? 'pred' : '', s === t ? 'today' : '', s === ui.selected ? 'sel' : ''].join(' ');
-        html += `<button class="${cls}" data-date="${s}">${d}<span class="dots">${dots}</span></button>`;
+        const cls = ['d', cy?.kind === 'real' ? 'cy' : '', cy?.kind === 'pred' ? 'pred' : '', cy?.kind === 'fert' ? 'fert' : '', cy?.ovulation ? 'ovu' : '', spans.length ? 'has-band' : '', s === t ? 'today' : '', s === ui.selected ? 'sel' : ''].join(' ');
+        html += `<button class="${cls}" data-date="${s}">${d}<span class="dots">${dots}</span>${bands ? `<span class="bands">${bands}</span>` : ''}</button>`;
     }
     const grid = $('#grid');
     grid.innerHTML = html;
@@ -264,15 +318,43 @@ function renderCalendar(direction = 0) {
     }
 }
 
-function reminderRow(r, s, i) {
+function repeatLabel(r) {
+    if (r.repeat === 'days') {
+        return WEEKDAYS.filter(([d]) => (r.days || []).includes(d)).map(([, , label]) => label).join(', ');
+    }
+    const label = r.repeat && r.repeat !== 'none' ? REPEATS[r.repeat] : '';
+    return label && r.endDate ? `${label} jusqu’au ${D.shortDate(r.endDate)}` : label;
+}
+
+function reminderRow(r, s, i, late = false) {
     const isNote = r.kind === 'note';
-    const sub = isNote ? (r.body || '').split('\n')[0] : [r.time, r.repeat !== 'none' ? REPEATS[r.repeat] : ''].filter(Boolean).join(' · ');
+    const span = D.isSpan(r);
+    let sub;
+    if (isNote) {
+        sub = (r.body || '').split('\n')[0];
+    } else if (span) {
+        sub = `${cap(D.rangeLabel(r.date, r.endDate))} · jour ${D.diffDays(r.date, s) + 1}/${D.diffDays(r.date, r.endDate) + 1}`;
+    } else if (late) {
+        sub = `En retard · prévu le ${D.shortDate(r.date)}`;
+    } else {
+        sub = [r.time, repeatLabel(r)].filter(Boolean).join(' · ');
+    }
+    const on = late ? r.date : s;
     return `
-        <div class="item ${!isNote && isDone(r, s) ? 'done' : ''}" style="--col:var(--${r.color});animation-delay:${i * 60}ms" data-id="${r.id}">
+        <div class="item ${isTask(r) && isDone(r, on) ? 'done' : ''} ${late ? 'late' : ''}" style="--col:var(--${late ? 'a' : r.color});animation-delay:${i * 60}ms" data-id="${r.id}">
             <div class="ico">${svg(r.icon)}</div>
             <div class="txt"><span>${esc(r.title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</div>
-            ${isNote ? '' : `<button class="check" data-check="${r.id}" aria-label="Marquer comme fait"></button>`}
+            ${late ? `<button class="snooze" data-snooze="${r.id}">Demain</button>` : ''}
+            ${isTask(r) ? `<button class="check" data-check="${r.id}" data-on="${on}" aria-label="Marquer comme fait"></button>` : ''}
         </div>`;
+}
+
+function logSummary(log) {
+    if (!log) {
+        return '';
+    }
+    const flow = FLOWS.find(([k]) => k && k === log.flow)?.[1];
+    return [log.mood, flow && `Flux ${flow.toLowerCase()}`, ...(log.symptoms || [])].filter(Boolean).join(' · ');
 }
 
 function renderDay() {
@@ -280,17 +362,142 @@ function renderDay() {
     const t = D.today();
     $('#day-title').innerHTML = `<span>${s === t ? "Aujourd'hui" : esc(cap(D.longDate(s)))}</span>${s !== t ? '<button class="link" data-today>Revenir à aujourd’hui</button>' : ''}`;
     const rows = [];
+    if (s === t) {
+        overdueTasks(t).forEach(r => rows.push(reminderRow(r, s, rows.length, true)));
+    }
     const c = cycleInfo();
     const cy = cycleKind(s, c, predictedStarts(c));
-    if (cy) {
+    if (cy?.kind === 'fert') {
         rows.push(`
-            <div class="item" style="--col:var(--a)">
+            <div class="item" style="--col:var(--c)" data-goto-cycle>
+                <div class="ico">${svg('i-sparkle')}</div>
+                <div class="txt"><span>${cy.ovulation ? 'Ovulation estimée' : 'Fenêtre de fertilité'}</span><small>Estimation indicative</small></div>
+            </div>`);
+    } else if (cy) {
+        rows.push(`
+            <div class="item" style="--col:var(--a)" data-goto-cycle>
                 <div class="ico">${svg('i-drop')}</div>
                 <div class="txt"><span>${cy.day === 1 ? 'Début des règles' : `Règles · jour ${cy.day}`}</span><small>${cy.kind === 'pred' ? 'Prévision' : 'Noté'}</small></div>
             </div>`);
     }
+    const log = logSummary(state.cycle.logs[s]);
+    if (log) {
+        rows.push(`
+            <div class="item" style="--col:var(--a)" data-goto-cycle="${s}">
+                <div class="ico">${svg('i-uterus')}</div>
+                <div class="txt"><span>Journal</span><small>${esc(log)}</small></div>
+            </div>`);
+    }
     occurrences(s).forEach(r => rows.push(reminderRow(r, s, rows.length)));
     $('#day-list').innerHTML = rows.length ? rows.join('') : `<div class="empty">${svg('i-sparkle', 34)}Journée libre !</div>`;
+    renderHabits();
+}
+
+function habitStreak(h) {
+    let day = D.today();
+    if (!h.log[day]) {
+        day = D.addDays(day, -1);
+    }
+    let n = 0;
+    while (h.log[day]) {
+        n++;
+        day = D.addDays(day, -1);
+    }
+    return n;
+}
+
+function renderHabits() {
+    const s = ui.selected;
+    $('#habits').innerHTML = state.habits.length
+        ? state.habits.map((h, i) => {
+            const streak = habitStreak(h);
+            return `
+                <div class="item ${h.log[s] ? 'done' : ''}" style="--col:var(--${h.color});animation-delay:${i * 50}ms" data-habit="${h.id}">
+                    <div class="ico">${svg(h.icon)}</div>
+                    <div class="txt"><span>${esc(h.name)}</span><small>${streak ? `🔥 ${streak} jour${streak > 1 ? 's' : ''} d’affilée` : 'Pas encore de série'}</small></div>
+                    <button class="check" data-habit-check="${h.id}" aria-label="Fait"></button>
+                </div>`;
+        }).join('')
+        : '<div class="empty small">Boire de l’eau, marcher, lire… ajoute une habitude à suivre chaque jour.</div>';
+}
+
+function habitForm(h) {
+    const isNew = !h;
+    const v = h || { name: '', icon: 'i-drop', color: 'c' };
+    openSheet(`
+        <h3>${isNew ? 'Nouvelle habitude' : 'Modifier l’habitude'}</h3>
+        <form>
+            <label class="field"><span>Quoi ?</span><input name="name" required maxlength="50" value="${esc(v.name)}" placeholder="Boire 1,5 L d’eau…"></label>
+            <div class="field"><span>Icône</span><div class="pick">${HABIT_ICONS.map(ic => `<label><input type="radio" name="icon" value="${ic}" ${v.icon === ic ? 'checked' : ''}><span class="opt">${svg(ic, 22)}</span></label>`).join('')}</div></div>
+            <div class="field"><span>Couleur</span><div class="pick">${COLORS.map(c => `<label><input type="radio" name="color" value="${c}" ${v.color === c ? 'checked' : ''}><span class="sw" style="background:var(--${c})"></span></label>`).join('')}</div></div>
+            <div class="btns">${isNew ? '' : '<button type="button" class="btn-danger" data-del>Supprimer</button>'}<button class="btn-main">Enregistrer</button></div>
+        </form>`,
+        root => {
+            const form = $('form', root);
+            form.onsubmit = e => {
+                e.preventDefault();
+                const fd = new FormData(form);
+                const data = { name: fd.get('name').trim(), icon: fd.get('icon') || v.icon, color: fd.get('color') || v.color };
+                if (!data.name) {
+                    return;
+                }
+                if (isNew) {
+                    state.habits.push({ id: uid(), log: {}, ...data });
+                } else {
+                    Object.assign(h, data);
+                }
+                save();
+                closeSheet();
+                renderHabits();
+            };
+            $('[data-del]', root)?.addEventListener('click', () => confirmSheet('Supprimer l’habitude ?', `« ${h.name} » et sa série seront supprimés.`, 'Supprimer', () => {
+                state.habits = state.habits.filter(x => x !== h);
+                save();
+                renderHabits();
+            }));
+        },
+    );
+}
+
+function searchSheet() {
+    openSheet(`
+        <h3>Rechercher</h3>
+        <label class="field"><input name="q" placeholder="Dentiste, cantine, vacances…" autocomplete="off" enterkeyhint="search"></label>
+        <div id="results"></div>`,
+        root => {
+            const input = $('[name=q]', root);
+            const results = $('#results', root);
+            const t = D.today();
+            input.oninput = () => {
+                const q = normalize(input.value);
+                if (q.length < 2) {
+                    results.innerHTML = '';
+                    return;
+                }
+                const hits = state.reminders
+                    .filter(r => normalize(`${r.title} ${r.body || ''}`).includes(q))
+                    .map(r => ({ r, date: D.nextOccurrence(r, t) || r.date }))
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .slice(0, 30);
+                results.innerHTML = hits.length
+                    ? hits.map(({ r, date }, i) => `
+                        <div class="item" style="--col:var(--${r.color});animation-delay:${i * 30}ms" data-result="${date}">
+                            <div class="ico">${svg(r.icon)}</div>
+                            <div class="txt"><span>${esc(r.title)}</span><small>${cap(D.longDate(date))}${date < t ? ' (passé)' : ''}</small></div>
+                        </div>`).join('')
+                    : '<div class="empty small">Aucun résultat</div>';
+            };
+            results.onclick = e => {
+                const date = e.target.closest('[data-result]')?.dataset.result;
+                if (date) {
+                    closeSheet();
+                    go(0);
+                    selectDate(date);
+                }
+            };
+            setTimeout(() => input.focus(), 350);
+        },
+    );
 }
 
 function renderPlanning() {
@@ -337,16 +544,32 @@ function reminderForm(r, kind = 'task') {
             <label class="field"><span>${isNote ? 'Titre' : 'Quoi ?'}</span><input name="title" required maxlength="80" value="${esc(v.title)}" placeholder="${isNote ? 'Idées cadeaux…' : 'Appeler la mutuelle…'}"></label>
             ${isNote ? `<label class="field"><span>Note</span><textarea name="body" maxlength="4000">${esc(v.body)}</textarea></label>` : ''}
             <div class="row2">
-                <label class="field"><span>Date</span><input type="date" name="date" required value="${v.date}"></label>
+                <label class="field"><span>Date ${isNote ? '' : '<button type="button" class="link" data-tomorrow>→ demain</button>'}</span><input type="date" name="date" required value="${v.date}"></label>
                 ${isNote ? '' : `<label class="field"><span>Heure</span><input type="time" name="time" value="${v.time || ''}"></label>`}
             </div>
-            ${isNote ? '' : `<label class="field"><span>Répétition</span><select name="repeat">${Object.entries(REPEATS).map(([val, label]) => `<option value="${val}" ${v.repeat === val ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`}
+            ${isNote ? '' : `
+            <label class="field"><span>Répétition</span><select name="repeat">${Object.entries(REPEATS).map(([val, label]) => `<option value="${val}" ${v.repeat === val ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+            <div class="field" data-days-field><span>Jours</span><div class="pick days">${WEEKDAYS.map(([d, letter, label]) => `<label><input type="checkbox" name="days" value="${d}" ${(v.days || []).includes(d) ? 'checked' : ''}><span class="opt" title="${label}">${letter}</span></label>`).join('')}</div></div>
+            <label class="field"><span data-end-label></span><input type="date" name="endDate" value="${v.endDate || ''}"></label>`}
             <div class="field"><span>Icône</span><div class="pick">${REMINDER_ICONS.map(ic => `<label><input type="radio" name="icon" value="${ic}" ${v.icon === ic ? 'checked' : ''}><span class="opt">${svg(ic, 22)}</span></label>`).join('')}</div></div>
             <div class="field"><span>Couleur</span><div class="pick">${COLORS.map(c => `<label><input type="radio" name="color" value="${c}" ${v.color === c ? 'checked' : ''}><span class="sw" style="background:var(--${c})"></span></label>`).join('')}</div></div>
             <div class="btns">${isNew ? '' : '<button type="button" class="btn-danger" data-del>Supprimer</button>'}<button class="btn-main">Enregistrer</button></div>
         </form>`,
         root => {
             const form = $('form', root);
+            const syncRepeat = () => {
+                if (isNote) {
+                    return;
+                }
+                const repeat = form.repeat.value;
+                $('[data-days-field]', root).hidden = repeat !== 'days';
+                $('[data-end-label]', root).textContent = repeat === 'none' ? 'Jusqu’au (sur plusieurs jours)' : 'Fin de la répétition (facultatif)';
+            };
+            form.repeat?.addEventListener('change', syncRepeat);
+            syncRepeat();
+            $('[data-tomorrow]', root)?.addEventListener('click', () => {
+                form.date.value = D.addDays(D.today(), 1);
+            });
             form.onsubmit = e => {
                 e.preventDefault();
                 const fd = new FormData(form);
@@ -355,12 +578,20 @@ function reminderForm(r, kind = 'task') {
                     date: fd.get('date'),
                     time: fd.get('time') || '',
                     repeat: fd.get('repeat') || 'none',
+                    days: fd.getAll('days').map(Number),
+                    endDate: fd.get('endDate') || '',
                     icon: fd.get('icon') || v.icon,
                     color: fd.get('color') || v.color,
                     body: (fd.get('body') || '').trim(),
                 };
                 if (!data.title || !data.date) {
                     return;
+                }
+                if (data.endDate && data.endDate <= data.date) {
+                    data.endDate = '';
+                }
+                if (data.repeat === 'days' && !data.days.length) {
+                    data.days = [D.parse(data.date).getDay()];
                 }
                 if (isNew) {
                     state.reminders.push({ id: uid(), kind: k, done: {}, ...data });
@@ -403,20 +634,112 @@ function renderCourses(animate = 'all') {
     $('#shop-title').textContent = list.name;
     $('#list-chips').innerHTML = state.lists.map(l => `<button class="chip ${l === list ? 'on' : ''}" data-list="${l.id}">${esc(l.name)}</button>`).join('')
         + `<button class="chip" data-newlist>+ Liste</button>`;
-    const items = [...list.items.filter(i => !i.done), ...list.items.filter(i => i.done)];
-    $('#shop').innerHTML = items.length
-        ? items.map((it, i) => {
-            const anim = animate === 'all' || (animate === 'first' && i === 0) ? `animation-delay:${animate === 'all' ? i * 30 : 0}ms` : 'animation:none';
-            return `
-                <div class="item ${it.done ? 'done' : ''}" style="--col:var(--c);${anim}" data-item="${it.id}">
-                    <div class="txt"><span>${esc(it.text)}</span></div>
-                    <button class="x" data-del="${it.id}" aria-label="Supprimer">${svg('i-x', 16)}</button>
-                    <button class="check" aria-label="Cocher"></button>
-                </div>`;
-        }).join('')
+    const todo = list.items.filter(i => !i.done);
+    const done = list.items.filter(i => i.done);
+    const groups = list.byAisle
+        ? AISLES.map(a => ({ title: `${a.emoji} ${a.label}`, items: todo.filter(i => (i.aisle || 'autre') === a.key) })).filter(g => g.items.length)
+        : [{ title: '', items: todo }];
+    if (done.length) {
+        groups.push({ title: list.byAisle ? '✅ Dans le panier' : '', items: done });
+    }
+    let index = 0;
+    const row = it => {
+        const i = index++;
+        const anim = animate === 'all' || (animate === 'first' && i === 0 && !it.done) ? `animation-delay:${animate === 'all' ? i * 30 : 0}ms` : 'animation:none';
+        return `
+            <div class="item ${it.done ? 'done' : ''}" style="--col:var(--c);${anim}" data-item="${it.id}">
+                <div class="txt"><span>${esc(it.text)}</span></div>
+                <button class="x" data-del="${it.id}" aria-label="Supprimer">${svg('i-x', 16)}</button>
+                <button class="check" aria-label="Cocher"></button>
+            </div>`;
+    };
+    $('#shop').innerHTML = list.items.length
+        ? groups.map(g => `${g.title ? `<div class="aisle">${g.title}</div>` : ''}${g.items.map(row).join('')}`).join('')
+            + '<div class="hint">Appui long sur un article pour le modifier</div>'
         : `<div class="empty">${svg('i-cart', 34)}Liste vide, ajoute ton premier article</div>`;
     $('#shop-actions').hidden = !list.items.length;
     updateProgress(list);
+    renderSuggestions();
+}
+
+function renderSuggestions() {
+    const list = activeList();
+    const q = normalize($('#new-item').value);
+    const present = new Set(list.items.filter(i => !i.done).map(i => normalize(i.text)));
+    const hits = Object.entries(state.shopHistory)
+        .filter(([key]) => !present.has(key) && (!q || key.includes(q)) && key !== q)
+        .sort((a, b) => (q ? Number(b[0].startsWith(q)) - Number(a[0].startsWith(q)) : 0) || b[1].count - a[1].count)
+        .slice(0, 8);
+    $('#suggest').innerHTML = hits.length
+        ? `<small>${q ? 'Suggestions' : 'Souvent achetés'}</small>${hits.map(([key, h]) => `<button type="button" class="chip" data-suggest="${esc(key)}">+ ${esc(h.text)}</button>`).join('')}`
+        : '';
+}
+
+function addItem(text, aisle) {
+    const list = activeList();
+    const key = normalize(text);
+    const known = state.shopHistory[key];
+    const item = { id: uid(), text, done: false, aisle: aisle || known?.aisle || guessAisle(text) };
+    list.items.unshift(item);
+    state.shopHistory[key] = { text, aisle: item.aisle, count: (known?.count || 0) + 1 };
+    save();
+    renderCourses('first');
+}
+
+function itemForm(item) {
+    openSheet(`
+        <h3>Modifier l’article</h3>
+        <form>
+            <label class="field"><span>Article</span><input name="text" required maxlength="80" value="${esc(item.text)}"></label>
+            <label class="field"><span>Rayon</span><select name="aisle">${AISLES.map(a => `<option value="${a.key}" ${(item.aisle || 'autre') === a.key ? 'selected' : ''}>${a.emoji} ${a.label}</option>`).join('')}</select></label>
+            <div class="btns"><button type="button" class="btn-danger" data-del>Supprimer</button><button class="btn-main">Enregistrer</button></div>
+        </form>`,
+        root => {
+            const form = $('form', root);
+            form.onsubmit = e => {
+                e.preventDefault();
+                const fd = new FormData(form);
+                const text = fd.get('text').trim();
+                if (!text) {
+                    return;
+                }
+                item.text = text;
+                item.aisle = fd.get('aisle');
+                const key = normalize(text);
+                state.shopHistory[key] = { text, aisle: item.aisle, count: state.shopHistory[key]?.count || 1 };
+                save();
+                closeSheet();
+                renderCourses('none');
+            };
+            $('[data-del]', root).onclick = () => {
+                const list = activeList();
+                list.items = list.items.filter(i => i !== item);
+                save();
+                closeSheet();
+                renderCourses('none');
+            };
+        },
+    );
+}
+
+async function shareList() {
+    const list = activeList();
+    const todo = list.items.filter(i => !i.done);
+    const lines = list.byAisle
+        ? AISLES.flatMap(a => {
+            const items = todo.filter(i => (i.aisle || 'autre') === a.key);
+            return items.length ? [`${a.emoji} ${a.label}`, ...items.map(i => `- ${i.text}`)] : [];
+        })
+        : todo.map(i => `- ${i.text}`);
+    const text = `🛒 ${list.name}\n${lines.join('\n')}`;
+    if (navigator.share) {
+        try {
+            await navigator.share({ title: list.name, text });
+        } catch {
+        }
+        return;
+    }
+    navigator.clipboard?.writeText(text).then(() => toast('Liste copiée'), () => toast('Partage impossible'));
 }
 
 function listForm(list) {
@@ -425,22 +748,26 @@ function listForm(list) {
         <h3>${isNew ? 'Nouvelle liste' : 'Modifier la liste'}</h3>
         <form>
             <label class="field"><span>Nom</span><input name="name" required maxlength="40" value="${esc(list?.name)}" placeholder="Marché, Pharmacie…"></label>
+            <label class="switch"><span>Trier par rayon<small>Fruits & légumes, frais, épicerie…</small></span><input type="checkbox" name="byAisle" ${list?.byAisle ? 'checked' : ''}></label>
             <div class="btns">${!isNew && state.lists.length > 1 ? '<button type="button" class="btn-danger" data-del>Supprimer</button>' : ''}<button class="btn-main">Enregistrer</button></div>
         </form>`,
         root => {
             const form = $('form', root);
             form.onsubmit = e => {
                 e.preventDefault();
-                const name = new FormData(form).get('name').trim();
+                const fd = new FormData(form);
+                const name = fd.get('name').trim();
+                const byAisle = fd.get('byAisle') === 'on';
                 if (!name) {
                     return;
                 }
                 if (isNew) {
-                    const created = { id: uid(), name, items: [] };
+                    const created = { id: uid(), name, items: [], byAisle };
                     state.lists.push(created);
                     state.activeList = created.id;
                 } else {
                     list.name = name;
+                    list.byAisle = byAisle;
                 }
                 save();
                 closeSheet();
@@ -518,6 +845,25 @@ function renderCycle() {
         sub = `Prochaines règles prévues ${D.longDate(c.next)}`;
     }
     const history = c.starts.map((s, i) => ({ s, gap: i ? D.diffDays(c.starts[i - 1], s) : null })).slice(-12).reverse();
+    const fertile = fertileWindow(c);
+    const fertileText = fertile
+        ? `${D.rangeLabel(fertile.from, fertile.to)}`
+        : '';
+    const log = state.cycle.logs[ui.logDate] || {};
+    const journal = `
+        <div class="journal">
+            <div class="journal-head">
+                <button class="nav" data-log-shift="-1" aria-label="Jour précédent">${svg('i-left', 16)}</button>
+                <b>Journal · ${ui.logDate === t ? 'aujourd’hui' : esc(D.longDate(ui.logDate))}</b>
+                <button class="nav" data-log-shift="1" aria-label="Jour suivant" ${ui.logDate >= t ? 'disabled' : ''}>${svg('i-right', 16)}</button>
+            </div>
+            <div class="label">Flux</div>
+            <div class="tags">${FLOWS.map(([k, label]) => `<button class="tag ${(log.flow || '') === k ? 'on' : ''}" data-flow="${k}">${label}</button>`).join('')}</div>
+            <div class="label">Symptômes</div>
+            <div class="tags">${SYMPTOMS.map(sym => `<button class="tag ${(log.symptoms || []).includes(sym) ? 'on' : ''}" data-symptom="${sym}">${sym}</button>`).join('')}</div>
+            <div class="label">Humeur</div>
+            <div class="tags moods">${MOODS.map(([emoji, label]) => `<button class="tag ${log.mood === emoji ? 'on' : ''}" data-mood="${emoji}" title="${label}"><span>${emoji}</span>${label}</button>`).join('')}</div>
+        </div>`;
     $('#cycle-body').innerHTML = `
         <div class="cycle">
             <div class="hello">Prochaines règles</div>
@@ -527,8 +873,10 @@ function renderCycle() {
                 <span>${c.measured ? `Cycle moyen ${c.avg} j` : `Cycle ${c.avg} j par défaut`}</span>
                 <span class="stepper">Durée <button data-len="-1" aria-label="Moins">−</button>${c.len} j<button data-len="1" aria-label="Plus">+</button></span>
             </div>
+            ${fertileText ? `<div class="fert-line">${svg('i-sparkle', 14)} Fenêtre fertile estimée ${fertileText}</div>` : ''}
             <button class="go" data-period>Mes règles ont commencé</button>
         </div>
+        ${journal}
         <div class="section">Historique</div>
         ${history.length ? history.map((h, i) => `
             <div class="item" style="--col:var(--a);animation-delay:${i * 40}ms">
@@ -536,7 +884,7 @@ function renderCycle() {
                 <div class="txt"><span>${cap(D.longDate(h.s))} ${h.s.slice(0, 4)}</span>${h.gap ? `<small>Cycle de ${h.gap} jours</small>` : ''}</div>
                 <button class="x" data-period-del="${h.s}" aria-label="Retirer">${svg('i-x', 16)}</button>
             </div>`).join('') : `<div class="empty">${svg('i-uterus', 34)}Aucune date notée pour l’instant</div>`}
-        <p class="fine">Les prévisions se basent sur la moyenne de tes 6 derniers cycles.</p>`;
+        <p class="fine">Les prévisions se basent sur la moyenne de tes 6 derniers cycles.${fertileText ? '<br>La fenêtre de fertilité est une estimation indicative, pas une méthode de contraception.' : ''}</p>`;
     if (state.cycleInVault) {
         $('#cycle-body').insertAdjacentHTML('afterbegin', `<div class="banner" style="--col:var(--b);--col2:var(--b2)" data-goto-vault><div class="bi">${svg('i-lock', 24)}</div><div><b>Ton historique est dans le coffre</b><small>Ouvre-le une fois pour le rapatrier ici</small></div></div>`);
     }
@@ -780,6 +1128,9 @@ function exportData() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    state.lastBackup = D.today();
+    save();
+    renderBanners();
     toast('Sauvegarde téléchargée');
 }
 
@@ -859,6 +1210,8 @@ function settingsForm() {
         <h3>Paramètres</h3>
         <label class="field"><span>Ton prénom</span><input name="name" maxlength="30" value="${esc(state.settings.name)}" placeholder="Prénom"></label>
         <div class="field"><span>Ambiance</span><div class="themes">${Object.entries(THEMES).map(([k, t]) => `<label><input type="radio" name="theme" value="${k}" ${state.settings.theme === k ? 'checked' : ''}><span class="sw" style="background:${t.swatch}"></span>${t.label}</label>`).join('')}</div></div>
+        <div class="field"><span>Apparence</span><div class="segmented">${[['auto', 'Auto'], ['light', 'Clair'], ['dark', 'Sombre']].map(([k, label]) => `<label><input type="radio" name="appearance" value="${k}" ${(state.settings.appearance || 'auto') === k ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div></div>
+        <label class="switch"><span>Fenêtre de fertilité<small>Estimation affichée dans le calendrier et l’onglet Cycle</small></span><input type="checkbox" name="showFertility" ${state.settings.showFertility ? 'checked' : ''}></label>
         <div class="field"><span>Agenda</span>
             <div class="btns"><button type="button" class="btn-ghost" data-ics>${svg('i-cal', 18)} Importer un agenda (.ics)</button></div>
             <input type="file" accept=".ics,text/calendar" hidden data-ics-file>
@@ -866,6 +1219,7 @@ function settingsForm() {
         <div class="field"><span>Sauvegarde de l’app</span>
             <div class="btns"><button type="button" class="btn-ghost" data-export>${svg('i-down', 18)} Exporter</button><button type="button" class="btn-ghost" data-import>${svg('i-up', 18)} Importer</button></div>
             <input type="file" accept="application/json,.json" hidden data-file>
+            <p class="fine">${state.lastBackup ? `Dernière sauvegarde le ${D.shortDate(state.lastBackup)}` : 'Aucune sauvegarde pour l’instant'}</p>
         </div>
         <p class="fine">Tes données restent sur ce téléphone, rien n’est envoyé sur Internet.<br>Le coffre est chiffré avec ton code, y compris dans la sauvegarde.<br>Version ${APP_VERSION}</p>`,
         root => {
@@ -881,6 +1235,19 @@ function settingsForm() {
                     applyTheme();
                 };
             });
+            root.querySelectorAll('[name=appearance]').forEach(r => {
+                r.onchange = () => {
+                    state.settings.appearance = r.value;
+                    save();
+                    applyTheme();
+                };
+            });
+            $('[name=showFertility]', root).onchange = e => {
+                state.settings.showFertility = e.target.checked;
+                save();
+                renderPlanning();
+                renderCycle();
+            };
             $('[data-export]', root).onclick = exportData;
             const file = $('[data-file]', root);
             $('[data-import]', root).onclick = () => file.click();
@@ -965,9 +1332,39 @@ function bindEvents() {
         }
     });
     $('#banners').onclick = e => {
-        const date = e.target.closest('[data-date]')?.dataset.date;
-        if (date) {
-            selectDate(date);
+        const banner = e.target.closest('.banner');
+        if (banner?.dataset.action === 'backup') {
+            exportData();
+        } else if (banner?.dataset.date) {
+            selectDate(banner.dataset.date);
+        }
+    };
+    $('#open-search').onclick = searchSheet;
+    $('#habit-new').onclick = () => habitForm(null);
+    $('#habits').onclick = e => {
+        const check = e.target.closest('[data-habit-check]');
+        const row = e.target.closest('[data-habit]');
+        if (!row) {
+            return;
+        }
+        const h = state.habits.find(x => x.id === row.dataset.habit);
+        if (!check) {
+            habitForm(h);
+            return;
+        }
+        const s = ui.selected;
+        if (h.log[s]) {
+            delete h.log[s];
+        } else {
+            h.log[s] = true;
+        }
+        save();
+        const streak = habitStreak(h);
+        row.classList.toggle('done', !!h.log[s]);
+        $('small', row).textContent = streak ? `🔥 ${streak} jour${streak > 1 ? 's' : ''} d’affilée` : 'Pas encore de série';
+        if (h.log[s] && [7, 30, 100, 365].includes(streak)) {
+            confetti();
+            toast(`🔥 ${streak} jours d’affilée !`);
         }
     };
     $('#day-title').onclick = e => {
@@ -976,10 +1373,26 @@ function bindEvents() {
         }
     };
     $('#day-list').onclick = e => {
+        const snooze = e.target.closest('[data-snooze]');
+        if (snooze) {
+            const r = state.reminders.find(x => x.id === snooze.dataset.snooze);
+            r.date = D.addDays(D.today(), 1);
+            save();
+            renderPlanning();
+            toast('Reporté à demain');
+            return;
+        }
+        const cycleRow = e.target.closest('[data-goto-cycle]');
+        if (cycleRow) {
+            ui.logDate = cycleRow.dataset.gotoCycle || ui.logDate;
+            renderCycle();
+            go(2);
+            return;
+        }
         const check = e.target.closest('[data-check]');
         if (check) {
             const r = state.reminders.find(x => x.id === check.dataset.check);
-            const s = ui.selected;
+            const s = check.dataset.on || ui.selected;
             r.done = r.done || {};
             if (r.done[s]) {
                 delete r.done[s];
@@ -1004,11 +1417,30 @@ function bindEvents() {
         if (!text) {
             return;
         }
-        activeList().items.unshift({ id: uid(), text, done: false });
-        save();
         input.value = '';
-        renderCourses('first');
+        addItem(text);
     };
+    $('#new-item').oninput = renderSuggestions;
+    $('#suggest').addEventListener('pointerdown', e => e.preventDefault());
+    $('#suggest').onclick = e => {
+        const key = e.target.closest('[data-suggest]')?.dataset.suggest;
+        const known = key && state.shopHistory[key];
+        if (known) {
+            $('#new-item').value = '';
+            addItem(known.text, known.aisle);
+        }
+    };
+    $('#shop').addEventListener('contextmenu', e => {
+        const row = e.target.closest('[data-item]');
+        if (!row) {
+            return;
+        }
+        e.preventDefault();
+        const item = activeList().items.find(i => i.id === row.dataset.item);
+        if (item) {
+            itemForm(item);
+        }
+    });
     $('#list-chips').onclick = e => {
         const chip = e.target.closest('[data-list]');
         if (chip) {
@@ -1048,6 +1480,10 @@ function bindEvents() {
     $('#shop-actions').onclick = e => {
         const action = e.target.closest('[data-shop]')?.dataset.shop;
         const list = activeList();
+        if (action === 'share') {
+            shareList();
+            return;
+        }
         if (action === 'uncheck') {
             list.items.forEach(i => { i.done = false; });
         } else if (action === 'clear') {
@@ -1067,6 +1503,39 @@ function bindEvents() {
         }
         if (t.closest('[data-goto-vault]')) {
             go(VAULT_TAB);
+            return;
+        }
+        const shift = t.closest('[data-log-shift]');
+        if (shift) {
+            const next = D.addDays(ui.logDate, Number(shift.dataset.logShift));
+            if (next <= D.today()) {
+                ui.logDate = next;
+                renderCycle();
+            }
+            return;
+        }
+        const tag = t.closest('.journal .tag');
+        if (tag) {
+            const logs = state.cycle.logs;
+            const log = logs[ui.logDate] || { flow: '', symptoms: [], mood: '' };
+            if ('flow' in tag.dataset) {
+                log.flow = tag.dataset.flow;
+                tag.parentElement.querySelectorAll('.tag').forEach(b => b.classList.toggle('on', b === tag));
+            } else if ('mood' in tag.dataset) {
+                log.mood = log.mood === tag.dataset.mood ? '' : tag.dataset.mood;
+                tag.parentElement.querySelectorAll('.tag').forEach(b => b.classList.toggle('on', b.dataset.mood === log.mood));
+            } else {
+                const sym = tag.dataset.symptom;
+                log.symptoms = log.symptoms.includes(sym) ? log.symptoms.filter(x => x !== sym) : [...log.symptoms, sym];
+                tag.classList.toggle('on', log.symptoms.includes(sym));
+            }
+            if (log.flow || log.mood || log.symptoms.length) {
+                logs[ui.logDate] = log;
+            } else {
+                delete logs[ui.logDate];
+            }
+            save();
+            renderDay();
             return;
         }
         const del = t.closest('[data-period-del]');
@@ -1150,6 +1619,7 @@ function bindEvents() {
 }
 
 applyTheme();
+darkQuery.addEventListener('change', applyTheme);
 bindEvents();
 renderAll();
 go(0);

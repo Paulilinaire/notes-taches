@@ -2,14 +2,23 @@ const KEY = 'nt-state';
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
+const todayIso = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const defaults = () => ({
     version: 1,
-    settings: { name: '', theme: 'bonbon' },
+    createdAt: todayIso(),
+    lastBackup: null,
+    settings: { name: '', theme: 'bonbon', appearance: 'auto', showFertility: true },
     reminders: [],
-    lists: [{ id: uid(), name: 'Courses', items: [] }],
+    habits: [],
+    lists: [{ id: uid(), name: 'Courses', items: [], byAisle: false }],
     activeList: null,
+    shopHistory: {},
     vault: null,
-    cycle: { periods: [], periodLen: 5 },
+    cycle: { periods: [], periodLen: 5, logs: {} },
     cycleInVault: false,
 });
 
@@ -31,6 +40,15 @@ function normalize(raw) {
     }
     if (!Array.isArray(merged.reminders)) {
         merged.reminders = [];
+    }
+    if (!Array.isArray(merged.habits)) {
+        merged.habits = [];
+    }
+    if (!merged.cycle.logs || typeof merged.cycle.logs !== 'object') {
+        merged.cycle.logs = {};
+    }
+    if (!merged.shopHistory || typeof merged.shopHistory !== 'object') {
+        merged.shopHistory = {};
     }
     return merged;
 }

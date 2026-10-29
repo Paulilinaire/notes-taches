@@ -44,6 +44,9 @@
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="18" width="16" height="3" rx="1.5" fill="currentColor" opacity=".45"/></symbol>
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="18" width="16" height="3" rx="1.5" fill="currentColor" opacity=".45"/></symbol>
     <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="2.2" fill="currentColor"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><circle cx="18.5" cy="12" r="2.2" fill="currentColor"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="currentColor" opacity=".35"/><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="2.4" fill="none"/><path d="m15.5 15.5 5 5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="3" fill="currentColor"/><circle cx="6" cy="12" r="3" fill="currentColor"/><circle cx="18" cy="18.5" r="3" fill="currentColor"/><path d="M8.6 10.6 15.4 7M8.6 13.4l6.8 3.6" stroke="currentColor" stroke-width="2" opacity=".5"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" fill="currentColor"/></symbol>
     <symbol id="i-uterus" viewBox="0 0 24 24"><path d="M7.6 7.4C6.3 5.3 4.1 4.8 3.1 6.4M16.4 7.4c1.3-2.1 3.5-2.6 4.5-1" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".6"/><ellipse cx="3.7" cy="9.2" rx="1.8" ry="2.1" fill="currentColor" opacity=".45"/><ellipse cx="20.3" cy="9.2" rx="1.8" ry="2.1" fill="currentColor" opacity=".45"/><path d="M7 7.6C7 6.6 7.8 6 8.6 6h6.8c.8 0 1.6.6 1.6 1.6 0 3.6-1.7 6.1-3.3 7v3.7a1.7 1.7 0 0 1-3.4 0v-3.7C8.7 13.7 7 11.2 7 7.6Z" fill="currentColor"/><path d="M10 8.6c.4 1.6 1.1 2.6 2 3.1.9-.5 1.6-1.5 2-3.1" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round" opacity=".7"/></symbol>
   </defs>
 </svg>
@@ -57,7 +60,10 @@
             <div class="hello" id="plan-date"></div>
             <h1 class="title" id="plan-hello">Bonjour</h1>
           </div>
-          <button class="round" id="open-settings" aria-label="Paramètres"><svg width="22" height="22"><use href="#i-gear"/></svg></button>
+          <div class="hero-btns">
+            <button class="round" id="open-search" aria-label="Rechercher"><svg width="22" height="22"><use href="#i-search"/></svg></button>
+            <button class="round" id="open-settings" aria-label="Paramètres"><svg width="22" height="22"><use href="#i-gear"/></svg></button>
+          </div>
         </div>
       </header>
       <div class="body">
@@ -72,6 +78,8 @@
         </div>
         <div class="section" id="day-title"></div>
         <div id="day-list"></div>
+        <div class="section"><span>Habitudes</span><button class="link" id="habit-new">+ Ajouter</button></div>
+        <div id="habits"></div>
       </div>
     </section>
 
@@ -94,11 +102,13 @@
             <input id="new-item" placeholder="Ajouter un article…" autocomplete="off" enterkeyhint="done" maxlength="80">
             <button aria-label="Ajouter"><svg width="20" height="20"><use href="#i-plus"/></svg></button>
           </form>
+          <div class="suggest" id="suggest"></div>
           <div id="shop"></div>
         </div>
         <div class="row-actions" id="shop-actions">
           <button class="soft" data-shop="uncheck">Tout décocher</button>
           <button class="soft" data-shop="clear">Retirer les cochés</button>
+          <button class="soft" data-shop="share"><svg width="14" height="14"><use href="#i-share"/></svg> Partager</button>
         </div>
       </div>
     </section>

@@ -23,7 +23,7 @@ L'app fonctionne ensuite hors ligne. Le dépôt ne contient que le code, jamais 
 
 ## Mettre à jour l'app
 
-Modifier les fichiers, puis incrémenter `CACHE` dans `sw.js` (`to-doudou-v6`, …) et `APP_VERSION` dans `js/app.js` avant de pousser.
+Modifier les fichiers, puis incrémenter `CACHE` dans `sw.js` (`to-doudou-v7`, …) et `APP_VERSION` dans `js/app.js` avant de pousser.
 Le téléphone récupère la nouvelle version à l'ouverture suivante.
 
 ## Sauvegarde
