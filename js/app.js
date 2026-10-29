@@ -18,7 +18,7 @@ const VAULT_ICONS = ['i-card', 'i-tax', 'i-heart', 'i-pill', 'i-home', 'i-lock',
 const COLORS = ['b', 'a', 'c', 'd'];
 const REPEATS = { none: 'Jamais', weekly: 'Chaque semaine', monthly: 'Chaque mois', yearly: 'Chaque année' };
 const CATEGORIES = { Administratif: 'b', Santé: 'a', Autre: 'd' };
-const APP_VERSION = 3;
+const APP_VERSION = 4;
 const AUTO_LOCK_MS = 120000;
 const DEFAULT_CYCLE = 28;
 const SCREENS = ['s-plan', 's-courses', 's-vault'];
@@ -762,7 +762,7 @@ function exportData() {
     const blob = new Blob([JSON.stringify({ ...state, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `notes-taches-${D.today()}.json`;
+    a.download = `to-doudou-${D.today()}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();

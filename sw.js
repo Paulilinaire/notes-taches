@@ -1,4 +1,4 @@
-const CACHE = 'notes-taches-v3';
+const CACHE = 'to-doudou-v4';
 const ASSETS = [
     './',
     './index.html',
