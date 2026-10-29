@@ -14,18 +14,18 @@ const THEMES = {
     sunset: { label: 'Coucher de soleil', color: '#ff7a00', swatch: 'conic-gradient(#ff4f6d,#ff7a00,#ffd23f,#8c52ff,#ff4f6d)' },
     lagon: { label: 'Lagon', color: '#00b4d8', swatch: 'conic-gradient(#00b4d8,#06d6a0,#3a86ff,#ff6b6b,#00b4d8)' },
 };
-const REMINDER_ICONS = ['i-bell', 'i-phone', 'i-pill', 'i-tooth', 'i-school', 'i-heart', 'i-home', 'i-gift', 'i-card', 'i-cart', 'i-sparkle', 'i-note', 'i-cal'];
+const REMINDER_ICONS = ['i-bell', 'i-cal', 'i-plane', 'i-palm', 'i-suitcase', 'i-car', 'i-cake', 'i-gift', 'i-work', 'i-sport', 'i-food', 'i-phone', 'i-pill', 'i-tooth', 'i-school', 'i-heart', 'i-home', 'i-card', 'i-cart', 'i-sparkle', 'i-note'];
 const VAULT_ICONS = ['i-card', 'i-tax', 'i-heart', 'i-pill', 'i-home', 'i-lock', 'i-note'];
 const COLORS = ['b', 'a', 'c', 'd'];
 const REPEATS = { none: 'Jamais', daily: 'Chaque jour', days: 'Certains jours', weekly: 'Chaque semaine', monthly: 'Chaque mois', yearly: 'Chaque année' };
 const WEEKDAYS = [[1, 'L', 'Lun'], [2, 'M', 'Mar'], [3, 'M', 'Mer'], [4, 'J', 'Jeu'], [5, 'V', 'Ven'], [6, 'S', 'Sam'], [0, 'D', 'Dim']];
-const HABIT_ICONS = ['i-drop', 'i-heart', 'i-sparkle', 'i-veg', 'i-pill', 'i-tooth', 'i-note', 'i-home', 'i-bell'];
+const HABIT_ICONS = ['i-drop', 'i-sport', 'i-heart', 'i-sparkle', 'i-veg', 'i-food', 'i-pill', 'i-tooth', 'i-note', 'i-home', 'i-bell'];
 const FLOWS = [['', 'Aucun'], ['light', 'Léger'], ['medium', 'Moyen'], ['heavy', 'Abondant']];
 const SYMPTOMS = ['Crampes', 'Fatigue', 'Maux de tête', 'Ballonnements', 'Seins sensibles', 'Mal de dos', 'Nausées', 'Acné'];
 const MOODS = [['😊', 'Bien'], ['😌', 'Calme'], ['😐', 'Bof'], ['😢', 'Triste'], ['😠', 'Irritable'], ['😰', 'Anxieuse']];
 const BACKUP_EVERY_DAYS = 30;
 const CATEGORIES = { Administratif: 'b', Santé: 'a', Autre: 'd' };
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 const AUTO_LOCK_MS = 120000;
 const DEFAULT_CYCLE = 28;
 const SCREENS = ['s-plan', 's-courses', 's-cycle', 's-vault'];
@@ -252,7 +252,7 @@ function banners(t) {
     const left = occurrences(t).filter(r => isTask(r) && !isDone(r, t));
     if (left.length) {
         out.push({
-            col: 'b', col2: 'b2', icon: 'i-bell', date: t,
+            col: 'b', col2: 'b2', icon: left.length === 1 ? left[0].icon : 'i-bell', date: t,
             title: left.length === 1 ? left[0].title : `${left.length} choses à faire`,
             sub: "Aujourd'hui",
             count: String(left.length),
