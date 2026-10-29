@@ -18,10 +18,11 @@ const VAULT_ICONS = ['i-card', 'i-tax', 'i-heart', 'i-pill', 'i-home', 'i-lock',
 const COLORS = ['b', 'a', 'c', 'd'];
 const REPEATS = { none: 'Jamais', weekly: 'Chaque semaine', monthly: 'Chaque mois', yearly: 'Chaque année' };
 const CATEGORIES = { Administratif: 'b', Santé: 'a', Autre: 'd' };
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 const AUTO_LOCK_MS = 120000;
 const DEFAULT_CYCLE = 28;
-const SCREENS = ['s-plan', 's-courses', 's-vault'];
+const SCREENS = ['s-plan', 's-courses', 's-cycle', 's-vault'];
+const VAULT_TAB = 3;
 
 const ui = {
     tab: 0,
@@ -36,7 +37,6 @@ const ui = {
     busy: false,
     failures: 0,
     blockedUntil: 0,
-    pending: null,
     lastActivity: Date.now(),
     bannersHtml: '',
 };
@@ -126,23 +126,19 @@ function go(index) {
 }
 
 function updateFab() {
-    $('#fab').hidden = ui.tab === 2 && (!V.isOpen() || ui.pinMode.startsWith('change'));
+    $('#fab').hidden = ui.tab === VAULT_TAB && (!V.isOpen() || ui.pinMode.startsWith('change'));
 }
 
 const occurrences = s => state.reminders.filter(r => D.occursOn(r, s)).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 const isDone = (r, s) => !!r.done?.[s];
 
 function cycleInfo() {
-    if (V.isOpen()) {
-        const starts = [...(V.data.periods || [])].sort();
-        const len = V.data.periodLen || 5;
-        const gaps = starts.slice(1).map((s, i) => D.diffDays(starts[i], s)).filter(g => g >= 15 && g <= 60).slice(-6);
-        const avg = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : DEFAULT_CYCLE;
-        const next = starts.length ? D.addDays(starts.at(-1), avg) : null;
-        return { starts: starts.slice(-24), len, avg, next, measured: gaps.length > 0 };
-    }
-    const hint = state.settings.cycleHint && state.cycleHint;
-    return hint ? { starts: [], len: hint.len, avg: hint.avg, next: hint.next, measured: true } : null;
+    const starts = [...state.cycle.periods].sort();
+    const len = state.cycle.periodLen;
+    const gaps = starts.slice(1).map((s, i) => D.diffDays(starts[i], s)).filter(g => g >= 15 && g <= 60).slice(-6);
+    const avg = gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length) : DEFAULT_CYCLE;
+    const next = starts.length ? D.addDays(starts.at(-1), avg) : null;
+    return { starts: starts.slice(-24), len, avg, next, measured: gaps.length > 0 };
 }
 
 const predictedStarts = c => (c?.next ? [0, 1, 2, 3].map(k => D.addDays(c.next, k * c.avg)) : []);
@@ -166,13 +162,26 @@ function cycleKind(s, c, predictions) {
     return null;
 }
 
-function syncCycleHint() {
+async function migrateCycleFromVault() {
     if (!V.isOpen()) {
         return;
     }
-    const c = cycleInfo();
-    state.cycleHint = state.settings.cycleHint && c.next ? { next: c.next, avg: c.avg, len: c.len } : null;
+    if (state.cycleInVault) {
+        state.cycleInVault = false;
+        save();
+    }
+    if (!('periods' in V.data || 'periodLen' in V.data)) {
+        return;
+    }
+    state.cycle.periods = [...new Set([...state.cycle.periods, ...(V.data.periods || [])])].sort();
+    if (V.data.periodLen) {
+        state.cycle.periodLen = V.data.periodLen;
+    }
+    delete V.data.periods;
+    delete V.data.periodLen;
+    delete state.cycleHint;
     save();
+    await persistVault();
 }
 
 function banners(t) {
@@ -277,7 +286,7 @@ function renderDay() {
         rows.push(`
             <div class="item" style="--col:var(--a)">
                 <div class="ico">${svg('i-drop')}</div>
-                <div class="txt"><span>${cy.day === 1 ? 'Début des règles' : `Règles · jour ${cy.day}`}</span><small>${cy.kind === 'pred' ? 'Prévision' : 'Noté dans le coffre'}</small></div>
+                <div class="txt"><span>${cy.day === 1 ? 'Début des règles' : `Règles · jour ${cy.day}`}</span><small>${cy.kind === 'pred' ? 'Prévision' : 'Noté'}</small></div>
             </div>`);
     }
     occurrences(s).forEach(r => rows.push(reminderRow(r, s, rows.length)));
@@ -494,7 +503,7 @@ function renderKeypad() {
     drawPins();
 }
 
-function renderVaultContent() {
+function renderCycle() {
     const t = D.today();
     const c = cycleInfo();
     const current = cycleKind(t, c, []);
@@ -508,7 +517,32 @@ function renderVaultContent() {
         big = n > 0 ? `Dans ${n} jour${n > 1 ? 's' : ''}` : n === 0 ? 'Prévues aujourd’hui' : `Retard de ${-n} jour${-n > 1 ? 's' : ''}`;
         sub = `Prochaines règles prévues ${D.longDate(c.next)}`;
     }
-    const history = c.starts.slice(-6).reverse().map(s => `<span>${D.shortDate(s)}<button data-period-del="${s}" aria-label="Retirer">${svg('i-x', 14)}</button></span>`).join('');
+    const history = c.starts.map((s, i) => ({ s, gap: i ? D.diffDays(c.starts[i - 1], s) : null })).slice(-12).reverse();
+    $('#cycle-body').innerHTML = `
+        <div class="cycle">
+            <div class="hello">Prochaines règles</div>
+            <div class="big">${big}</div>
+            <div class="hello">${sub}</div>
+            <div class="meta">
+                <span>${c.measured ? `Cycle moyen ${c.avg} j` : `Cycle ${c.avg} j par défaut`}</span>
+                <span class="stepper">Durée <button data-len="-1" aria-label="Moins">−</button>${c.len} j<button data-len="1" aria-label="Plus">+</button></span>
+            </div>
+            <button class="go" data-period>Mes règles ont commencé</button>
+        </div>
+        <div class="section">Historique</div>
+        ${history.length ? history.map((h, i) => `
+            <div class="item" style="--col:var(--a);animation-delay:${i * 40}ms">
+                <div class="ico">${svg('i-drop')}</div>
+                <div class="txt"><span>${cap(D.longDate(h.s))} ${h.s.slice(0, 4)}</span>${h.gap ? `<small>Cycle de ${h.gap} jours</small>` : ''}</div>
+                <button class="x" data-period-del="${h.s}" aria-label="Retirer">${svg('i-x', 16)}</button>
+            </div>`).join('') : `<div class="empty">${svg('i-uterus', 34)}Aucune date notée pour l’instant</div>`}
+        <p class="fine">Les prévisions se basent sur la moyenne de tes 6 derniers cycles.</p>`;
+    if (state.cycleInVault) {
+        $('#cycle-body').insertAdjacentHTML('afterbegin', `<div class="banner" style="--col:var(--b);--col2:var(--b2)" data-goto-vault><div class="bi">${svg('i-lock', 24)}</div><div><b>Ton historique est dans le coffre</b><small>Ouvre-le une fois pour le rapatrier ici</small></div></div>`);
+    }
+}
+
+function renderVaultContent() {
     const entries = Object.entries(CATEGORIES).map(([cat, color]) => {
         const list = V.data.entries.filter(e => e.category === cat);
         if (!list.length) {
@@ -527,17 +561,6 @@ function renderVaultContent() {
 
     $('#vault-sub').textContent = 'Déverrouillé · se referme après 2 min';
     $('#vault-body').innerHTML = `
-        <div class="cycle">
-            <div class="hello">${svg('i-drop', 16)} Cycle</div>
-            <div class="big">${big}</div>
-            <div class="hello">${sub}</div>
-            <div class="meta">
-                <span>${c.measured ? `Cycle moyen ${c.avg} j` : `Cycle ${c.avg} j par défaut`}</span>
-                <span class="stepper">Durée <button data-len="-1" aria-label="Moins">−</button>${c.len} j<button data-len="1" aria-label="Plus">+</button></span>
-            </div>
-            ${history ? `<div class="history">${history}</div>` : ''}
-            <button class="go" data-period>Mes règles ont commencé</button>
-        </div>
         ${entries || `<div class="empty">${svg('i-card', 34)}Ajoute ta carte vitale, ton n° fiscal…</div>`}
         ${entries ? '<div class="hint">Touche une ligne pour afficher la valeur</div>' : ''}
         <button class="big-btn" data-add-entry>+ Ajouter une info</button>
@@ -573,14 +596,6 @@ async function persistVault() {
     const pinLen = state.vault.pinLen;
     state.vault = { ...(await V.seal()), pinLen };
     save();
-    syncCycleHint();
-}
-
-function runPending() {
-    if (ui.pending === 'period' && V.isOpen()) {
-        ui.pending = null;
-        periodForm();
-    }
 }
 
 async function submitPin() {
@@ -607,11 +622,11 @@ async function submitPin() {
         ui.pin = '';
         ui.lastActivity = Date.now();
         $('.lock')?.classList.add('ok');
-        syncCycleHint();
+        await migrateCycleFromVault();
         setTimeout(() => {
             renderVault();
+            renderCycle();
             renderPlanning();
-            runPending();
         }, 350);
         return;
     }
@@ -635,7 +650,7 @@ async function submitPin() {
     }
     const creating = ui.pinMode === 'confirm';
     setBusy(true);
-    const blob = creating ? await V.create(pin, { entries: [], periods: [], periodLen: 5 }) : await V.rekey(pin);
+    const blob = creating ? await V.create(pin, { entries: [] }) : await V.rekey(pin);
     setBusy(false);
     state.vault = { ...blob, pinLen: pin.length };
     save();
@@ -643,10 +658,8 @@ async function submitPin() {
     ui.pinFirst = '';
     ui.pinMode = 'unlock';
     ui.lastActivity = Date.now();
-    syncCycleHint();
     renderVault();
     toast(creating ? 'Coffre créé 🔒' : 'Code modifié');
-    runPending();
 }
 
 function onKey(k) {
@@ -686,19 +699,19 @@ function periodForm() {
             <div class="btns"><button class="btn-main">Enregistrer</button></div>
         </form>`,
         root => {
-            $('form', root).onsubmit = async e => {
+            $('form', root).onsubmit = e => {
                 e.preventDefault();
                 const date = new FormData(e.target).get('date');
                 closeSheet();
-                if (!date || !V.isOpen()) {
+                if (!date) {
                     return;
                 }
-                if (!V.data.periods.includes(date)) {
-                    V.data.periods.push(date);
-                    V.data.periods.sort();
+                if (!state.cycle.periods.includes(date)) {
+                    state.cycle.periods.push(date);
+                    state.cycle.periods.sort();
                 }
-                await persistVault();
-                renderVault();
+                save();
+                renderCycle();
                 renderPlanning();
                 toast('Noté 🩸');
             };
@@ -846,7 +859,6 @@ function settingsForm() {
         <h3>Paramètres</h3>
         <label class="field"><span>Ton prénom</span><input name="name" maxlength="30" value="${esc(state.settings.name)}" placeholder="Prénom"></label>
         <div class="field"><span>Ambiance</span><div class="themes">${Object.entries(THEMES).map(([k, t]) => `<label><input type="radio" name="theme" value="${k}" ${state.settings.theme === k ? 'checked' : ''}><span class="sw" style="background:${t.swatch}"></span>${t.label}</label>`).join('')}</div></div>
-        <label class="switch"><span>Prévision des règles sans code<small>Bandeau J-x et jours prévus visibles même coffre fermé</small></span><input type="checkbox" name="cycleHint" ${state.settings.cycleHint ? 'checked' : ''}></label>
         <div class="field"><span>Agenda</span>
             <div class="btns"><button type="button" class="btn-ghost" data-ics>${svg('i-cal', 18)} Importer un agenda (.ics)</button></div>
             <input type="file" accept=".ics,text/calendar" hidden data-ics-file>
@@ -869,15 +881,6 @@ function settingsForm() {
                     applyTheme();
                 };
             });
-            $('[name=cycleHint]', root).onchange = e => {
-                state.settings.cycleHint = e.target.checked;
-                if (!e.target.checked) {
-                    state.cycleHint = null;
-                }
-                save();
-                syncCycleHint();
-                renderPlanning();
-            };
             $('[data-export]', root).onclick = exportData;
             const file = $('[data-file]', root);
             $('[data-import]', root).onclick = () => file.click();
@@ -895,7 +898,7 @@ function fabMenu() {
         <div class="choices">
             <button style="background:linear-gradient(135deg,var(--b),var(--b2))" data-add="task">${svg('i-bell', 30)}Rappel</button>
             <button style="background:linear-gradient(135deg,var(--c),var(--c2))" data-add="item">${svg('i-cart', 30)}Article</button>
-            <button style="background:linear-gradient(135deg,var(--a),var(--a2))" data-add="period">${svg('i-drop', 30)}Début règles</button>
+            <button style="background:linear-gradient(135deg,var(--a),var(--a2))" data-add="period">${svg('i-uterus', 30)}Début règles</button>
             <button style="background:linear-gradient(135deg,var(--d),var(--a2))" data-add="note">${svg('i-note', 30)}Note</button>
         </div>`,
         root => {
@@ -908,14 +911,7 @@ function fabMenu() {
                     go(1);
                     setTimeout(() => $('#new-item').focus(), 450);
                 } else if (action === 'period') {
-                    if (V.isOpen()) {
-                        periodForm();
-                        return;
-                    }
-                    closeSheet();
-                    ui.pending = 'period';
-                    go(2);
-                    toast('Déverrouille le coffre d’abord');
+                    periodForm();
                 }
             };
         },
@@ -925,6 +921,7 @@ function fabMenu() {
 function renderAll() {
     renderPlanning();
     renderCourses();
+    renderCycle();
     renderVault();
 }
 
@@ -1062,6 +1059,30 @@ function bindEvents() {
         renderCourses();
     };
 
+    $('#cycle-body').onclick = e => {
+        const t = e.target;
+        if (t.closest('[data-period]')) {
+            periodForm();
+            return;
+        }
+        if (t.closest('[data-goto-vault]')) {
+            go(VAULT_TAB);
+            return;
+        }
+        const del = t.closest('[data-period-del]');
+        const len = t.closest('[data-len]');
+        if (del) {
+            state.cycle.periods = state.cycle.periods.filter(p => p !== del.dataset.periodDel);
+        } else if (len) {
+            state.cycle.periodLen = Math.min(10, Math.max(2, state.cycle.periodLen + Number(len.dataset.len)));
+        } else {
+            return;
+        }
+        save();
+        renderCycle();
+        renderPlanning();
+    };
+
     $('#vault-body').onclick = e => {
         const t = e.target;
         const key = t.closest('[data-k]');
@@ -1074,11 +1095,10 @@ function bindEvents() {
         } else if (t.closest('[data-forgot]')) {
             confirmSheet(
                 'Code oublié ?',
-                'Sans le code, impossible de lire le coffre. Tu peux le vider pour repartir de zéro : tes numéros et ton suivi de cycle seront effacés définitivement.',
+                'Sans le code, impossible de lire le coffre. Tu peux le vider pour repartir de zéro : tes numéros seront effacés définitivement.',
                 'Vider le coffre',
                 () => {
                     state.vault = null;
-                    state.cycleHint = null;
                     save();
                     ui.pin = '';
                     ui.pinMode = 'create';
@@ -1095,21 +1115,6 @@ function bindEvents() {
             ui.pin = '';
             ui.pinMode = 'change';
             renderVault();
-        } else if (t.closest('[data-period]')) {
-            periodForm();
-        } else if (t.closest('[data-period-del]')) {
-            const date = t.closest('[data-period-del]').dataset.periodDel;
-            V.data.periods = V.data.periods.filter(p => p !== date);
-            persistVault().then(() => {
-                renderVault();
-                renderPlanning();
-            });
-        } else if (t.closest('[data-len]')) {
-            V.data.periodLen = Math.min(10, Math.max(2, (V.data.periodLen || 5) + Number(t.closest('[data-len]').dataset.len)));
-            persistVault().then(() => {
-                renderVault();
-                renderPlanning();
-            });
         } else if (t.closest('[data-copy]')) {
             const entry = V.data.entries.find(x => x.id === t.closest('[data-copy]').dataset.copy);
             navigator.clipboard?.writeText(entry.value).then(() => toast('Copié'), () => toast('Copie impossible'));

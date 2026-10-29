@@ -4,17 +4,28 @@ export const uid = () => Date.now().toString(36) + Math.random().toString(36).sl
 
 const defaults = () => ({
     version: 1,
-    settings: { name: '', theme: 'bonbon', cycleHint: true },
+    settings: { name: '', theme: 'bonbon' },
     reminders: [],
     lists: [{ id: uid(), name: 'Courses', items: [] }],
     activeList: null,
     vault: null,
-    cycleHint: null,
+    cycle: { periods: [], periodLen: 5 },
+    cycleInVault: false,
 });
 
 function normalize(raw) {
     const base = defaults();
-    const merged = { ...base, ...raw, settings: { ...base.settings, ...(raw.settings || {}) } };
+    const merged = {
+        ...base,
+        ...raw,
+        settings: { ...base.settings, ...(raw.settings || {}) },
+        cycle: { ...base.cycle, ...(raw.cycle || {}) },
+        cycleInVault: raw.cycleInVault ?? (!raw.cycle && !!raw.vault),
+    };
+    delete merged.settings.cycleHint;
+    if (!Array.isArray(merged.cycle.periods)) {
+        merged.cycle.periods = [];
+    }
     if (!Array.isArray(merged.lists) || !merged.lists.length) {
         merged.lists = base.lists;
     }

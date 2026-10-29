@@ -44,6 +44,7 @@
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="18" width="16" height="3" rx="1.5" fill="currentColor" opacity=".45"/></symbol>
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><rect x="4" y="18" width="16" height="3" rx="1.5" fill="currentColor" opacity=".45"/></symbol>
     <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="2.2" fill="currentColor"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><circle cx="18.5" cy="12" r="2.2" fill="currentColor"/></symbol>
+    <symbol id="i-uterus" viewBox="0 0 24 24"><path d="M7.6 7.4C6.3 5.3 4.1 4.8 3.1 6.4M16.4 7.4c1.3-2.1 3.5-2.6 4.5-1" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".6"/><ellipse cx="3.7" cy="9.2" rx="1.8" ry="2.1" fill="currentColor" opacity=".45"/><ellipse cx="20.3" cy="9.2" rx="1.8" ry="2.1" fill="currentColor" opacity=".45"/><path d="M7 7.6C7 6.6 7.8 6 8.6 6h6.8c.8 0 1.6.6 1.6 1.6 0 3.6-1.7 6.1-3.3 7v3.7a1.7 1.7 0 0 1-3.4 0v-3.7C8.7 13.7 7 11.2 7 7.6Z" fill="currentColor"/><path d="M10 8.6c.4 1.6 1.1 2.6 2 3.1.9-.5 1.6-1.5 2-3.1" stroke="#fff" stroke-width="1.4" fill="none" stroke-linecap="round" opacity=".7"/></symbol>
   </defs>
 </svg>
 
@@ -102,6 +103,18 @@
       </div>
     </section>
 
+    <section class="screen hide-right" id="s-cycle" aria-label="Cycle">
+      <header class="hero h-cycle">
+        <div class="hero-row">
+          <div>
+            <div class="hello">Suivi des règles</div>
+            <h1 class="title"><svg width="30" height="30"><use href="#i-uterus"/></svg> Cycle</h1>
+          </div>
+        </div>
+      </header>
+      <div class="body" id="cycle-body"></div>
+    </section>
+
     <section class="screen hide-right" id="s-vault" aria-label="Coffre">
       <header class="hero h-vault">
         <div class="hero-row">
@@ -121,7 +134,8 @@
   <nav class="tabs" id="tabs">
     <button class="tab on" style="--tc:var(--b)" data-tab="0"><svg width="22" height="22"><use href="#i-cal"/></svg><span class="lbl">Planning</span></button>
     <button class="tab" style="--tc:var(--c)" data-tab="1"><svg width="22" height="22"><use href="#i-cart"/></svg><span class="lbl">Courses</span></button>
-    <button class="tab" style="--tc:var(--a)" data-tab="2"><svg width="22" height="22"><use href="#i-lock"/></svg><span class="lbl">Coffre</span></button>
+    <button class="tab" style="--tc:var(--a)" data-tab="2"><svg width="22" height="22"><use href="#i-uterus"/></svg><span class="lbl">Cycle</span></button>
+    <button class="tab" style="--tc:linear-gradient(135deg,var(--b),var(--a))" data-tab="3"><svg width="22" height="22"><use href="#i-lock"/></svg><span class="lbl">Coffre</span></button>
   </nav>
 
   <div class="veil" id="veil"></div>

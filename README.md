@@ -23,13 +23,13 @@ L'app fonctionne ensuite hors ligne. Le dépôt ne contient que le code, jamais 
 
 ## Mettre à jour l'app
 
-Modifier les fichiers, puis incrémenter `CACHE` dans `sw.js` (`to-doudou-v5`, …) et `APP_VERSION` dans `js/app.js` avant de pousser.
+Modifier les fichiers, puis incrémenter `CACHE` dans `sw.js` (`to-doudou-v6`, …) et `APP_VERSION` dans `js/app.js` avant de pousser.
 Le téléphone récupère la nouvelle version à l'ouverture suivante.
 
 ## Sauvegarde
 
-Paramètres (⚙) → **Exporter** : télécharge un fichier JSON. Le coffre y reste chiffré, mais les rappels et
-les courses sont en clair. Pour restaurer : **Importer** sur le nouveau téléphone, puis entrer le même code.
+Paramètres (⚙) → **Exporter** : télécharge un fichier JSON. Le coffre y reste chiffré, mais les rappels,
+les courses et le cycle sont en clair. Pour restaurer : **Importer** sur le nouveau téléphone, puis entrer le même code.
 Sans le code, le coffre est irrécupérable.
 
 ## Importer un agenda

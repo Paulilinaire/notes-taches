@@ -21,6 +21,7 @@ button{cursor:pointer}
 @keyframes float{50%{transform:translateY(12px) scale(1.05)}}
 .h-plan{background:linear-gradient(135deg,var(--b),var(--a))}
 .h-shop{background:linear-gradient(135deg,var(--c),var(--c2))}
+.h-cycle{background:linear-gradient(135deg,var(--a),var(--b))}
 .h-vault{background:linear-gradient(135deg,var(--ink),var(--b))}
 .hero-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;position:relative;z-index:1}
 .hello{font-size:13px;opacity:.88;font-weight:700}

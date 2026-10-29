@@ -1,4 +1,4 @@
-const CACHE = 'to-doudou-v4';
+const CACHE = 'to-doudou-v5';
 const ASSETS = [
     './',
     './index.html',
